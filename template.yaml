@@ -1,0 +1,165 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Globals:
+  Function:
+    Timeout: 5
+    Runtime: go1.x
+
+Resources:
+  
+  WebsocketAPI:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: WebSocketAPI
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: $request.body.action
+  WebsocketAPIDeployment:
+    Type: AWS::ApiGatewayV2::Deployment
+    DependsOn:
+      - ConnectRoute
+      - DisconnectRoute
+      - SendMessageRoute
+    Properties:
+      ApiId: !Ref WebsocketAPI
+  WebsocketApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      StageName: dev
+      Description: dev stage
+      DeploymentId: !Ref WebsocketAPIDeployment
+      ApiId: !Ref WebsocketAPI
+    
+
+  ConnectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/connect/
+      Handler: main
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConnectionsTable
+      Environment:
+        Variables:
+          table_name: !Ref ConnectionsTable
+  ConnectFunctionPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+      - ConnectFunction
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ConnectFunction
+      Principal: apigateway.amazonaws.com
+  ConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    DependsOn:
+      - ConnectFunction
+    Properties:
+      RouteKey: $connect
+      AuthorizationType: NONE
+      ApiId: !Ref WebsocketAPI
+      OperationName: ConnectRoute
+      Target: !Sub integrations/${ConnectIntegration}
+  ConnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WebsocketAPI
+      Description: Connection Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConnectFunction.Arn}/invocations
+      
+      
+  DisconnectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/disconnect/
+      Handler: main
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConnectionsTable
+      Environment:
+        Variables:
+          table_name: !Ref ConnectionsTable
+  DisconnectFunctionPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+      - DisconnectFunction
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref DisconnectFunction
+      Principal: apigateway.amazonaws.com
+  DisconnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WebsocketAPI
+      Description: Disconnect Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DisconnectFunction.Arn}/invocations
+  DisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    DependsOn:
+      - DisconnectFunction
+    Properties:
+      RouteKey: $disconnect
+      AuthorizationType: NONE
+      ApiId: !Ref WebsocketAPI
+      OperationName: DisconnectRoute
+      Target: !Sub integrations/${DisconnectIntegration}
+      
+      
+  SendMessageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/send-message/
+      Handler: main
+      Environment:
+        Variables:
+          table_name: !Ref ConnectionsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConnectionsTable
+        - Statement:
+            - Effect: Allow
+              Action: execute-api:ManageConnections
+              Resource: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebsocketAPI}/*
+  SendMessageFunctionPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+      - SendMessageFunction
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref SendMessageFunction
+      Principal: apigateway.amazonaws.com
+  SendMessageIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WebsocketAPI
+      Description: SendMessage Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SendMessageFunction.Arn}/invocations
+  SendMessageRoute:
+    Type: AWS::ApiGatewayV2::Route
+    DependsOn:
+      - DisconnectFunction
+    Properties:
+      RouteKey: sendmessage
+      AuthorizationType: NONE
+      ApiId: !Ref WebsocketAPI
+      OperationName: SendMessageRoute
+      Target: !Sub integrations/${SendMessageIntegration}
+      
+      
+  ConnectionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-table
+      AttributeDefinitions:
+        - AttributeName: room
+          AttributeType: S
+      KeySchema:
+        - AttributeName: room
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+          
+          
+
