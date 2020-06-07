@@ -30,3 +30,7 @@ func toStringSet(connection string) *dynamodb.AttributeValue {
 }
 ```
 
+## Testing
+
+For testing, I'm trying out something new - `testcontainers`. 
+This allows me to spin up `dynamoDB` instance programmatically.

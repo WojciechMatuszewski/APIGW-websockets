@@ -7,7 +7,6 @@ Globals:
     Runtime: go1.x
 
 Resources:
-  
   WebsocketAPI:
     Type: AWS::ApiGatewayV2::Api
     Properties:
